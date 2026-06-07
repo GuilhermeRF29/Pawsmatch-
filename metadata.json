@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Remix: Tinder de Adoção de Animais",
+  "description": "Encontre o seu parceiro pet perfeito deslizando para a direita nas fotos deles! Converse com os abrigos e adote um animalzinho.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
