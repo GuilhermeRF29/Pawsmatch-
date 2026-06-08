@@ -1,0 +1,142 @@
+Rotas autenticação - /auth
+
+POST /auth/register
+	Protegida: Não
+	Descrição: Recebe os dados iniciais, criptografa a senha, cria o usuário no MySQL e retorna o token de acesso.
+	{
+		"name": "string",        // Ex: "Mariana Silva"
+		"email": "string",       // Ex: "mariana@email.com"
+		"password": "string",    // Ex: "Password1!"
+		"role": "string",        // Ex: "adotante" (ou "doador")
+		"location": "string",    // Ex: "São Paulo, SP"
+		"profilePic": "string",  // Ex: "base64 da imagem" (opcional)
+
+		// Específicos de Doador (Opcionais se for adotante)
+		"shelterName": "string", // Ex: "Abrigo Patas de Ouro"
+		"phone": "string",       // Ex: "(11) 98888-2222"
+
+		// Específicos de Adotante (Opcionais se for doador)
+		"hasYard": "boolean",    // Ex: true
+		"otherPets": "boolean"   // Ex: false
+	}
+
+POST /auth/login
+	Protegida: Não
+	Descrição: Valida e-mail e senha. Se correto, retorna os dados do perfil e o token JWT.
+	{
+		"email": "string",       // Ex: "mariana@email.com"
+		"password": "string"     // Ex: "Password1!"
+	}
+
+GET /users/me
+	Protegida: Sim
+	Descrição: Retorna os dados do perfil logado (usado quando o usuário recarrega a página para manter a sessão).
+
+PUT /users/me
+	Protegida: Sim
+	Descrição: Atualiza preferências (ex: hasYard, location, profilePic).
+	{
+		"name": "string",        // Ex: "Mariana Silva Editada"
+		"location": "string",    // Ex: "Campinas, SP"
+		"phone": "string",       // Ex: "(19) 99999-0000"
+		"profilePic": "string",  // Ex: "base64 da imagem"
+		"hasYard": "boolean",    // Ex: true
+		"otherPets": "boolean"   // Ex: true
+	}
+
+DELETE /users/me
+	Protegida: Sim
+	Descrição: Apaga a conta do usuário (Zona de Perigo).
+
+
+Rotas pets - /pets (Catálogo de Pets)
+
+GET /pets
+	Protegida: Sim
+	Descrição: Retorna a lista de pets disponíveis para o "Deck do Cupido". O back-end já filtra os animais que o usuário já deu match ou rejeitou.
+
+GET /pets/me
+	Protegida: Sim
+	Descrição: Retorna apenas os pets cadastrados pelo abrigo/doador que está fazendo a requisição.
+
+POST /pets
+	Protegida: Sim
+	Descrição: Cria um novo card de animal no banco de dados.
+	{
+		"name": "string",        // Ex: "Floquinho"
+		"type": "string",        // Ex: "Cachorro" (ou "Gato")
+		"breed": "string",       // Ex: "Vira-lata"
+		"age": "string",         // Ex: "5 meses"
+		"gender": "string",      // Ex: "Macho" (ou "Fêmea")
+		"size": "string",        // Ex: "Médio" (Pequeno, Médio, Grande)
+		"photo": "string",       // Ex: "base64 imagem"
+		"bio": "string",         // Ex: "Sou muito arteiro e amo carinho na barriga..."
+		"location": "string"     // Ex: "São Paulo, SP"
+	}
+
+PUT /pets/:id
+	Protegida: Sim
+	Descrição: Atualiza informações do pet (bio, fotos) ou altera o status global (ex: marcar como adotado por fora do app).
+	{
+		// Máquina de estados da Visita
+		"visitStatus": "string",    // Ex: "proposta_adotante" (ou "proposta_doador", "agendada", "cancelada")
+		"visitDate": "string",      // Ex: "2026-06-15" (Recomendado formato ISO YYYY-MM-DD)
+		"visitTime": "string",      // Ex: "14:00"
+
+		// Máquina de estados da Adoção
+		"adoptionStatus": "string", // Ex: "proposta_adotante" (ou "proposta_doador", "agendado", "adotado", "cancelado")
+		"adoptionDate": "string",   // Ex: "2026-06-20"
+		"adoptionTime": "string"    // Ex: "10:00"
+	}
+
+DELETE /pets/:id
+	Protegida: Sim
+	Descrição: Remove o pet do sistema.
+
+
+Motor de Swipe e Matches - /swipes e /matches
+
+POST /swipes
+	Protegida: Sim
+	Descrição: Registra a ação do usuário no card (action: "like" | "pass"). Se for "like", o servidor processa a chance de match e, se ocorrer, cria o registro do Match.
+	{
+		"petId": "string",       // Ex: "uuid-do-pet-1234" (Pode ser UUID ou Integer, dependendo da sua key no MySQL)
+		"action": "string"       // Ex: "like" (ou "pass", "super")
+	}
+
+GET /matches
+	Protegida: Sim
+	Descrição: Lista todas as conversas ativas. O back-end filtra automaticamente se quem pede é o Doador (vê os matches dos seus pets) ou o Adotante (vê os seus próprios matches).
+
+PATCH /matches/:id/status
+	Protegida: Sim
+	Descrição: Atualiza a máquina de estados do match (ex: visitStatus: "agendada", adoptionStatus: "concluida"). Ambos os lados chamam essa rota para aceitar ou propor horários.
+	{
+		// Máquina de estados da Visita
+		"visitStatus": "string",    // Ex: "proposta_adotante" (ou "proposta_doador", "agendada", "cancelada")
+		"visitDate": "string",      // Ex: "2026-06-15" (Recomendado formato ISO YYYY-MM-DD)
+		"visitTime": "string",      // Ex: "14:00"
+
+		// Máquina de estados da Adoção
+		"adoptionStatus": "string", // Ex: "proposta_adotante" (ou "proposta_doador", "agendado", "adotado", "cancelado")
+		"adoptionDate": "string",   // Ex: "2026-06-20"
+		"adoptionTime": "string"    // Ex: "10:00"
+	}
+
+DELETE /matches/:id
+	Protegida: Sim
+	Descrição: Desfaz o match (botão de lixeira na UI). Interrompe a conversa.
+
+
+Mensageria (/messages)
+
+GET /matches/:matchId/messages
+	Protegida: Sim
+	Descrição: Carrega o histórico de mensagens de uma conversa específica.
+
+POST /matches/:matchId/messages
+	Protegida: Sim
+	Descrição: Envia uma nova mensagem para o chat, carimbando quem é o remetente com base no token do usuário.
+	{
+		"text": "string"         // Ex: "Olá! Gostaria de confirmar o endereço para a visita amanhã."
+	}

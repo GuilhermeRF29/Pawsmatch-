@@ -1,0 +1,147 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  adotante
+  doador
+}
+
+model Usuario {
+  id            Int      @id @default(autoincrement())
+  tipo_perfil   Role
+  nome          String   @db.VarChar(100)
+  email         String   @unique @db.VarChar(100)
+  senha         String   @db.VarChar(255)
+  telefone      String?  @db.VarChar(20)
+  cidade_uf     String?  @db.VarChar(100)
+  foto_perfil   String?  @db.LongText // LongText para suportar Base64
+  nome_abrigo   String?  @db.VarChar(100)
+  tem_quintal   Boolean?
+  outros_pets   Boolean?
+  data_cadastro DateTime @default(now())
+
+  @@map("usuarios")
+
+  pets     Pet[]
+  swipes   Swipe[]
+  matches  Match[]
+}
+
+enum Especie {
+  Cachorro
+  Gato
+}
+
+enum Sexo {
+  Macho
+  Femea
+}
+
+enum Porte {
+  Pequeno
+  Medio
+  Grande
+}
+
+enum AcaoSwipe {
+  like
+  pass
+  super
+}
+
+enum StatusMaquinas {
+  nenhum
+  proposta_adotante
+  proposta_doador
+  agendada
+  agendado
+  adotado
+  cancelada
+  cancelado
+}
+
+enum Remetente {
+  user
+  pet
+}
+
+// --- MODELS ---
+
+model Pet {
+  id            Int      @id @default(autoincrement())
+  nome          String   @db.VarChar(100)
+  especie       Especie
+  raca          String   @db.VarChar(100)
+  idade_desc    String   @db.VarChar(50)
+  sexo          Sexo
+  porte         Porte
+  bio           String   @db.Text
+  localizacao   String   @db.VarChar(100)
+  foto          String   @db.LongText
+  adotado       Boolean  @default(false)
+  data_cadastro DateTime @default(now())
+
+  // Relacionamentos
+  doadorId      Int
+  dono          Usuario  @relation(fields: [doadorId], references: [id], onDelete: Cascade)
+  swipes        Swipe[]
+  matches       Match[]
+
+  @@map("pets")
+}
+
+model Swipe {
+  id          Int       @id @default(autoincrement())
+  acao        AcaoSwipe
+  data_acao   DateTime  @default(now())
+
+  adotanteId  Int
+  adotante    Usuario   @relation(fields: [adotanteId], references: [id], onDelete: Cascade)
+  petId       Int
+  pet         Pet       @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@map("swipes")
+}
+
+model Match {
+  id              Int            @id @default(autoincrement())
+  ultima_mensagem String?        @db.Text
+  lida_adotante   Boolean        @default(false)
+  lida_doador     Boolean        @default(false)
+
+  status_visita   StatusMaquinas @default(nenhum)
+  data_visita     DateTime?      @db.Date
+  hora_visita     String?        @db.VarChar(10) // Armazena como string "HH:MM"
+
+  status_adocao   StatusMaquinas @default(nenhum)
+  data_adocao     DateTime?      @db.Date
+  hora_adocao     String?        @db.VarChar(10)
+
+  data_match      DateTime       @default(now())
+
+  adotanteId      Int
+  adotante        Usuario        @relation(fields: [adotanteId], references: [id], onDelete: Cascade)
+  petId           Int
+  pet             Pet            @relation(fields: [petId], references: [id], onDelete: Cascade)
+  mensagens       Mensagem[]
+
+  @@map("matches")
+}
+
+model Mensagem {
+  id         Int       @id @default(autoincrement())
+  remetente  Remetente
+  texto      String    @db.Text
+  data_envio DateTime  @default(now())
+
+  matchId    Int
+  match      Match     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@map("mensagens")
+}

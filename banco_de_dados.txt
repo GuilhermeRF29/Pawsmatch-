@@ -1,0 +1,59 @@
+Tabela: Usuários (usuarios)
+	id: Inteiro (Chave Primária, Gerado automaticamente)
+	tipo_perfil (role): Enum ('adotante', 'doador')
+	nome: Texto (Nome do usuário ou do responsável)
+	email: Texto (Único)
+	senha: Texto (Onde ficará o Hash da senha criptografada)
+	telefone: Texto (Opcional para adotantes, vital para abrigos)
+	cidade_uf: Texto (Localização)
+	foto_perfil: Texto Longo / MEDIUMTEXT (A string da imagem em Base64)
+	nome_abrigo: Texto (Exclusivo para Doadores. Nulo para adotantes)
+	tem_quintal: Booleano (Exclusivo para Adotantes)
+	outros_pets: Booleano (Exclusivo para Adotantes)
+	data_cadastro: Data e Hora
+
+Tabela: Pets (pets)
+	id: Inteiro (Chave Primária)
+	doador_id: Inteiro (Chave Estrangeira vinculada a usuarios.id)
+	nome: Texto
+	especie: Enum ('Cachorro', 'Gato')
+	raca: Texto
+	idade_desc: Texto (Ex: "2 anos", "Filhote")
+	sexo: Enum ('Macho', 'Fêmea')
+	porte: Enum ('Pequeno', 'Médio', 'Grande')
+	bio: Texto (A descrição fofa em primeira pessoa)
+	localizacao: Texto
+	foto: Texto Longo / MEDIUMTEXT (A string da imagem em Base64)
+	adotado: Booleano (Padrão: Falso. Define se ainda aparece no "Deck do Cupido")
+	data_cadastro: Data e Hora
+
+Tabela: Swipes / Ações (swipes)
+	id: Inteiro (Chave Primária)
+	adotante_id: Inteiro (Chave Estrangeira vinculada a usuarios.id)
+	pet_id: Inteiro (Chave Estrangeira vinculada a pets.id)
+	acao: Enum ('like', 'pass', 'super')
+	data_acao: Data e Hora
+
+Tabela: Matches (matches)
+	id: Inteiro (Chave Primária)
+	adotante_id: Inteiro (Chave Estrangeira vinculada a usuarios.id)
+	pet_id: Inteiro (Chave Estrangeira vinculada a pets.id)
+	ultima_mensagem: Texto (Um cache rápido para exibir na lista de conversas da sidebar)
+	lida_adotante: Booleano (Para gerenciar a bolinha vermelha de notificação)
+	lida_doador: Booleano
+	-- Máquina de Estado de Visita --
+	status_visita: Enum ('nenhum', 'proposta_adotante', 'proposta_doador', 'agendada', 'cancelada')
+	data_visita: Data (Data sugerida/agendada)
+	hora_visita: Tempo (Hora sugerida/agendada)
+	-- Máquina de Estado de Adoção --
+	status_adocao: Enum ('nenhum', 'proposta_adotante', 'proposta_doador', 'agendado', 'adotado', 'cancelado')
+	data_adocao: Data
+	hora_adocao: Tempo
+	data_match: Data e Hora
+
+Tabela: Mensagens (mensagens)
+	id: Inteiro (Chave Primária)
+	match_id: Inteiro (Chave Estrangeira vinculada a matches.id)
+	remetente: Enum ('user', 'pet') -> user é quando o Adotante envia, pet é quando o Doador responde.
+	texto: Texto
+	data_envio: Data e Hora
