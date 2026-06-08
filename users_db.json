@@ -50,5 +50,31 @@
       "profilePic": "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?auto=format&fit=crop&q=80&w=150",
       "phone": "123"
     }
+  },
+  "email@email.com": {
+    "password": "Senha123@",
+    "profile": {
+      "name": "Nome",
+      "email": "email@email.com",
+      "role": "adotante",
+      "location": "São Paulo, SP",
+      "otherPets": false,
+      "hasYard": true,
+      "profilePic": "https://images.unsplash.com/photo-1537151625747-7ae85e565156?auto=format&fit=crop&q=80&w=150",
+      "phone": "11912345678"
+    }
+  },
+  "soihfs@guioshb.com": {
+    "password": "Password1!",
+    "profile": {
+      "name": "sduigfiusb",
+      "email": "soihfs@guioshb.com",
+      "role": "adotante",
+      "location": "São Paulo, SP",
+      "otherPets": true,
+      "hasYard": true,
+      "profilePic": "https://images.unsplash.com/photo-1537151625747-7ae85e565156?auto=format&fit=crop&q=80&w=150",
+      "phone": "11923456789"
+    }
   }
 }

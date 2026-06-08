@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+pets_db.json
+matches_db.json
+messages_db.json
+swipes_db.json

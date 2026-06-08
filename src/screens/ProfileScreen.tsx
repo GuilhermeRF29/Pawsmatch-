@@ -66,6 +66,36 @@ export default function ProfileScreen({
     }
   };
 
+  const handleSave = async () => {
+    const token = localStorage.getItem("paws_token");
+    try {
+      const res = await fetch("/api/auth/me", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(userProfile)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUserProfile(data.profile);
+        localStorage.setItem("paws_user_profile", JSON.stringify(data.profile));
+        if (data.token) {
+          localStorage.setItem("paws_token", data.token);
+        }
+        showFlash("Perfil atualizado e salvo com sucesso!", "success");
+        setActiveTab(userProfile.role === "doador" ? "my-listed-pets" : "swipe");
+      } else {
+        const err = await res.json();
+        alert(err.error || "Erro ao salvar perfil.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao salvar perfil.");
+    }
+  };
+
   return (
     <div className="w-full max-w-xl bg-white rounded-3xl shadow-xl border border-rose-50 p-6 sm:p-8">
       <div className="flex items-center gap-4 border-b border-rose-50 pb-5 mb-5">
@@ -218,10 +248,7 @@ export default function ProfileScreen({
         <div className="grid grid-cols-2 gap-4 mt-6">
           <button
             id="profile-save-btn"
-            onClick={() => {
-              showFlash("Perfil atualizado e salvo com sucesso!", "success");
-              setActiveTab(userProfile.role === "doador" ? "my-listed-pets" : "swipe");
-            }}
+            onClick={handleSave}
             className="bg-gradient-to-r from-[#ff4b6e] to-[#ff7e40] text-white py-3 px-4 rounded-xl font-display font-bold text-xs tracking-wide shadow-md hover:brightness-105 active:scale-98 transition flex items-center justify-center gap-1.5 cursor-pointer"
           >
             Confirmar e Salvar

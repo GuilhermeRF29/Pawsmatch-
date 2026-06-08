@@ -30,11 +30,7 @@ import {
 
 export default function App() {
   // State variables
-  const [pets, setPets] = useState<Pet[]>(() => {
-    const saved = localStorage.getItem("paws_pets");
-    const loaded: Pet[] = saved ? JSON.parse(saved) : INITIAL_PETS;
-    return loaded.filter((pet) => pet.type === "Cachorro" || pet.type === "Gato");
-  });
+  const [pets, setPets] = useState<Pet[]>([]);
 
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
     const saved = localStorage.getItem("paws_user_profile");
@@ -45,15 +41,9 @@ export default function App() {
     return !!localStorage.getItem("paws_token");
   });
 
-  const [matches, setMatches] = useState<Match[]>(() => {
-    const saved = localStorage.getItem("paws_matches");
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [matches, setMatches] = useState<Match[]>([]);
 
-  const [messages, setMessages] = useState<Message[]>(() => {
-    const saved = localStorage.getItem("paws_messages");
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [messages, setMessages] = useState<Message[]>([]);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     const savedProfile = localStorage.getItem("paws_user_profile");
@@ -109,13 +99,11 @@ export default function App() {
           setUserProfile(data.profile);
           setIsLoggedIn(true);
         } else {
-          // Token expired or invalid
           localStorage.removeItem("paws_token");
           setIsLoggedIn(false);
         }
       } catch (e) {
         console.error("Erro ao verificar sessão JWT:", e);
-        // Fallback to offline profile
         const savedProfile = localStorage.getItem("paws_user_profile");
         if (savedProfile) {
           setUserProfile(JSON.parse(savedProfile));
@@ -129,22 +117,92 @@ export default function App() {
     checkSession();
   }, []);
 
-  // Persist dependencies
+  // Fetch pets and matches once logged in, and poll matches list every 4 seconds
   useEffect(() => {
-    localStorage.setItem("paws_pets", JSON.stringify(pets));
-  }, [pets]);
+    if (!isLoggedIn) {
+      setPets([]);
+      setMatches([]);
+      setMessages([]);
+      return;
+    }
 
+    const token = localStorage.getItem("paws_token");
+    
+    const fetchPetsAndMatches = () => {
+      // Fetch pets
+      fetch("/api/pets", {
+        headers: { "Authorization": `Bearer ${token}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) setPets(data);
+        })
+        .catch(err => console.error("Erro ao buscar pets:", err));
+
+      // Fetch matches
+      fetch("/api/matches", {
+        headers: { "Authorization": `Bearer ${token}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            setMatches(prev => {
+              // Only update state if matches contents have actually changed
+              if (JSON.stringify(prev) !== JSON.stringify(data)) {
+                return data;
+              }
+              return prev;
+            });
+          }
+        })
+        .catch(err => console.error("Erro ao buscar matches:", err));
+    };
+
+    fetchPetsAndMatches();
+
+    const interval = setInterval(fetchPetsAndMatches, 4000);
+    return () => clearInterval(interval);
+  }, [isLoggedIn]);
+
+  // Fetch messages for selected match, and poll current chat messages every 3 seconds
   useEffect(() => {
-    localStorage.setItem("paws_user_profile", JSON.stringify(userProfile));
+    if (!selectedMatchId || !isLoggedIn) return;
+    const token = localStorage.getItem("paws_token");
+
+    const fetchMessages = () => {
+      fetch(`/api/matches/${selectedMatchId}/messages`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            setMessages(prev => {
+              const otherMessages = prev.filter(m => m.matchId !== selectedMatchId);
+              const currentMessages = prev.filter(m => m.matchId === selectedMatchId);
+              
+              // Only update state if messages content has actually changed
+              if (JSON.stringify(currentMessages) !== JSON.stringify(data)) {
+                return [...otherMessages, ...data];
+              }
+              return prev;
+            });
+          }
+        })
+        .catch(err => console.error("Erro ao carregar mensagens:", err));
+    };
+
+    fetchMessages();
+
+    const interval = setInterval(fetchMessages, 3000);
+    return () => clearInterval(interval);
+  }, [selectedMatchId, isLoggedIn]);
+
+  // Persist profile backup
+  useEffect(() => {
+    if (userProfile) {
+      localStorage.setItem("paws_user_profile", JSON.stringify(userProfile));
+    }
   }, [userProfile]);
-
-  useEffect(() => {
-    localStorage.setItem("paws_matches", JSON.stringify(matches));
-  }, [matches]);
-
-  useEffect(() => {
-    localStorage.setItem("paws_messages", JSON.stringify(messages));
-  }, [messages]);
 
   const showFlash = (text: string, type: "success" | "info" = "success") => {
     setFlashMessage({ text, type });
@@ -189,49 +247,43 @@ export default function App() {
   };
 
   // Swipe Action
-  const handleSwipe = (direction: "left" | "right" | "super") => {
+  const handleSwipe = async (direction: "left" | "right" | "super") => {
     if (!currentPet) return;
 
-    if (direction === "right" || direction === "super") {
-      const isMatch = Math.random() < 0.85;
-
-      if (isMatch) {
-        const newMatch: Match = {
-          id: `match-${Date.now()}`,
-          pet: currentPet,
-          matchedAt: new Date().toISOString(),
-          lastMessage: direction === "super" ? "Super Gostei!" : "Match Recente",
-          unreadCount: 1,
-          adotanteEmail: userProfile.email,
-          adotanteName: userProfile.name,
-          adotantePic: userProfile.profilePic,
-        };
-
-        const introGreeting: Message = {
-          id: `msg-intro-${Date.now()}`,
-          matchId: newMatch.id,
-          sender: "pet",
-          text: `Olá! Nós do abrigo ${currentPet.shelterName} ficamos extremamente felizes com seu interesse no(a) ${currentPet.name}. Estamos prontos para conversar sobre o processo de adoção responsável! Sinta-se à vontade para tirar dúvidas por aqui ou sugerir um agendamento de visita. 🐾`,
-          timestamp: new Date().toISOString(),
-        };
-
-        newMatch.lastMessage = introGreeting.text;
-
-        setMatches((prev) => [newMatch, ...prev]);
-        setMessages((prev) => [...prev, introGreeting]);
-        setCelebrationPet(currentPet);
-      } else {
-        showFlash(`Você curtiu ${currentPet.name}, mas ele está dormindo agora...`);
+    const token = localStorage.getItem("paws_token");
+    try {
+      const res = await fetch("/api/swipes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ petId: currentPet.id, action: direction })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        if (data.matched && data.match) {
+          setMatches((prev) => [data.match, ...prev]);
+          if (data.initialMessage) {
+            setMessages((prev) => [...prev, data.initialMessage]);
+          }
+          setCelebrationPet(currentPet);
+        } else {
+          if (direction === "right" || direction === "super") {
+            showFlash(`Você curtiu ${currentPet.name}, mas ele está dormindo agora...`);
+          } else {
+            showFlash(`${currentPet.name} foi pulado(a). Outros petinhos te esperam!`, "info");
+          }
+        }
       }
-    } else {
-      showFlash(`${currentPet.name} foi pulado(a). Outtos petinhos te esperam!`, "info");
+    } catch (e) {
+      console.error("Erro ao registrar swipe:", e);
     }
 
     setPets((prev) => {
-      const target = prev.find((p) => p.id === currentPet.id);
-      if (!target) return prev;
       const filtered = prev.filter((p) => p.id !== currentPet.id);
-      return [...filtered, target];
+      return filtered;
     });
   };
 
@@ -244,247 +296,364 @@ export default function App() {
   const displayedMatches = matches.filter((match) => {
     if (userProfile.role === "doador") {
       const matchesMyPet =
-        match.pet.contactEmail === userProfile.email ||
-        match.pet.shelterName === userProfile.shelterName ||
+        match.pet.contactEmail.toLowerCase() === userProfile.email.toLowerCase() ||
+        match.pet.shelterName.toLowerCase() === (userProfile.shelterName || "").toLowerCase() ||
         match.pet.id.startsWith("custom-pet-");
       return matchesMyPet || !match.adotanteEmail;
     } else {
-      return !match.adotanteEmail || match.adotanteEmail === userProfile.email;
+      return !match.adotanteEmail || match.adotanteEmail.toLowerCase() === userProfile.email.toLowerCase();
     }
   });
 
   const activeChatMatch = displayedMatches.find((m) => m.id === selectedMatchId) || null;
 
-  const handleSendMessage = (text: string) => {
+  const handleSendMessage = async (text: string) => {
     if (!selectedMatchId) return;
+    const token = localStorage.getItem("paws_token");
 
-    const isDoador = userProfile.role === "doador";
-    const senderRole = isDoador ? "pet" : "user";
+    try {
+      const res = await fetch(`/api/matches/${selectedMatchId}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ text })
+      });
 
-    const newMsg: Message = {
-      id: `msg-${Date.now()}`,
-      matchId: selectedMatchId,
-      sender: senderRole,
-      text,
-      timestamp: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, newMsg]);
-    setMatches((prev) => prev.map((m) => (m.id === selectedMatchId ? { ...m, lastMessage: text } : m)));
-  };
-
-  const handlePublishPet = (createdPet: Pet) => {
-    setPets((prev) => [createdPet, ...prev]);
-    showFlash(`${createdPet.name} foi inserido(a) na lista do Cupido! Comece a deslizar.`);
-    setActiveTab(userProfile.role === "doador" ? "my-listed-pets" : "swipe");
-  };
-
-  const handleDeletePet = (petId: string) => {
-    setPets((prev) => prev.filter((p) => p.id !== petId));
-    showFlash("Pet removido com sucesso.");
-  };
-
-  const handleMarkAsAdopted = (pet: Pet) => {
-    const matchingChats = matches.filter((m) => m.pet.id === pet.id);
-
-    if (matchingChats.length > 0) {
-      const newMsgs = matchingChats.map((m) => ({
-        id: `msg-adopt-conf-${m.id}-${Date.now()}`,
-        matchId: m.id,
-        sender: "pet" as const,
-        text: `🎉 Adoção Confirmada! O processo de adoção de ${pet.name} foi concluído com sucesso pelo doador/abrigo! O amiguinho já está em seu novo lar maravilhoso! Muito obrigado por adotar de forma responsável! ❤️🐾`,
-        timestamp: new Date().toISOString(),
-      }));
-      setMessages((prev) => [...prev, ...newMsgs]);
-      setMatches((prev) =>
-        prev.map((m) =>
-          m.pet.id === pet.id
-            ? { ...m, adoptionStatus: "adotado", lastMessage: `Adoção Concluída! ${pet.name} foi adotado(a)! 🎉` }
-            : m
-        )
-      );
-    }
-
-    setPets((prev) => prev.map((p) => (p.id === pet.id ? { ...p, isAdopted: true } : p)));
-    showFlash(
-      `Parabéns! ${pet.name} agora está marcado como adotado e seu card continuará listado para você! Uma mensagem de confirmação foi enviada para o chat do adotante! 🎉`,
-      "success"
-    );
-  };
-
-  const handleAcceptVisit = (match: Match) => {
-    setMatches((prev) => prev.map((m) => (m.id === match.id ? { ...m, visitStatus: "agendada" } : m)));
-
-    const formattedDate = new Date(match.visitDate + "T00:00:00").toLocaleDateString("pt-BR");
-    const textMsg = `*Visita aceita e confirmada pelo Abrigo!* 🐾 Visita agendada para o dia ${formattedDate} às ${match.visitTime}!`;
-    const confirmMsg: Message = {
-      id: `msg-confirm-${Date.now()}`,
-      matchId: match.id,
-      sender: "pet",
-      text: textMsg,
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, confirmMsg]);
-    showFlash("Visita aceita e agendamento confirmado com sucesso!", "success");
-  };
-
-  const handleCancelVisit = (match: Match) => {
-    setMatches((prev) => prev.map((m) => (m.id === match.id ? { ...m, visitStatus: "cancelada" } : m)));
-    showFlash("Visita de adoção desmarcada.", "info");
-  };
-
-  const handleAcceptAdoption = (match: Match) => {
-    setMatches((prev) => prev.map((m) => (m.id === match.id ? { ...m, adoptionStatus: "agendado" } : m)));
-
-    const formattedDate = new Date(match.adoptionDate + "T00:00:00").toLocaleDateString("pt-BR");
-    const textMsg = `*Adoção autorizada pelo Doador/Abrigo!* 🏠🎉 A entrega do pet ${match.pet.name} foi agendada para o dia ${formattedDate} às ${match.adoptionTime}! Traga uma caixa de transporte segura ou coleira adequada para buscá-lo.`;
-    const confirmMsg: Message = {
-      id: `msg-confirm-adopt-${Date.now()}`,
-      matchId: match.id,
-      sender: "pet",
-      text: textMsg,
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, confirmMsg]);
-    showFlash("Adoção autorizada! Entrega agendada com sucesso.", "success");
-  };
-
-  const handleCancelAdoption = (match: Match) => {
-    setMatches((prev) => prev.map((m) => (m.id === match.id ? { ...m, adoptionStatus: "cancelada" } : m)));
-    showFlash("Agendamento de adoção desmarcado.", "info");
-  };
-
-  const handleDeletePetProfile = (petId: string) => {
-    const matchingChats = matches.filter((m) => m.pet.id === petId);
-    if (matchingChats.length > 0) {
-      const newMsgs = matchingChats.map((m) => ({
-        id: `msg-adopt-conf-${m.id}-${Date.now()}`,
-        matchId: m.id,
-        sender: "pet" as const,
-        text: `🎉 Cadastro Removido! O amiguinho ${m.pet.name} teve seu perfil removido do sistema pelo abrigo/doador responsável. Agradecemos pelo carinho e interesse! ❤️🐾`,
-        timestamp: new Date().toISOString(),
-      }));
-      setMessages((prev) => [...prev, ...newMsgs]);
-      setMatches((prev) =>
-        prev.map((m) => (m.pet.id === petId ? { ...m, lastMessage: `Perfil do pet removido pelo doador` } : m))
-      );
-    }
-    setPets((prev) => prev.filter((p) => p.id !== petId));
-    showFlash("Cadastro do pet removido com sucesso.", "success");
-  };
-
-  const handleUnmatch = (matchId: string) => {
-    if (window.confirm("Deseja realmente desfazer este Match? O petinho ficará triste...")) {
-      setMatches((prev) => prev.filter((m) => m.id !== matchId));
-      if (selectedMatchId === matchId) {
-        setSelectedMatchId(null);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.messages && Array.isArray(data.messages)) {
+          setMessages((prev) => [...prev, ...data.messages]);
+          const lastMsgText = data.messages[data.messages.length - 1].text;
+          setMatches((prev) =>
+            prev.map((m) => (m.id === selectedMatchId ? { ...m, lastMessage: lastMsgText } : m))
+          );
+        }
       }
-      showFlash("Match desfeito.", "info");
+    } catch (e) {
+      console.error("Erro ao enviar mensagem:", e);
     }
   };
 
-  const handleSimulateAdoption = (match: Match) => {
-    const confirmMsg: Message = {
-      id: `msg-confirm-adopt-final-user-${Date.now()}`,
-      matchId: match.id,
-      sender: "pet",
-      text: `🎉 Adoção Confirmada! O processo de adoção de ${match.pet.name} foi concluído com sucesso! O card do pet foi removido e a adoção foi consolidada com sucesso. Muito obrigado por adotar e dar um lar responsável! ❤️🐾`,
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, confirmMsg]);
-
-    setMatches((prev) =>
-      prev.map((m) =>
-        m.id === match.id
-          ? { ...m, adoptionStatus: "adotado", lastMessage: `Adoção Concluída! ${match.pet.name} foi adotado(a)! 🎉` }
-          : m
-      )
-    );
-
-    setPets((prev) => prev.map((p) => (p.id === match.pet.id ? { ...p, isAdopted: true } : p)));
-    showFlash(`Parabéns! Você confirmou a retirada e adotou ${match.pet.name}! 🎉`, "success");
+  const handlePublishPet = async (createdPet: Pet) => {
+    const token = localStorage.getItem("paws_token");
+    try {
+      const res = await fetch("/api/pets", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(createdPet)
+      });
+      if (res.ok) {
+        const newPet = await res.json();
+        setPets((prev) => [newPet, ...prev]);
+        showFlash(`${newPet.name} foi inserido(a) na lista do Cupido! Comece a deslizar.`);
+        setActiveTab(userProfile.role === "doador" ? "my-listed-pets" : "swipe");
+      }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  const handleConfirmVisit = () => {
+  const handleDeletePet = async (petId: string) => {
+    const token = localStorage.getItem("paws_token");
+    try {
+      const res = await fetch(`/api/pets/${petId}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setPets((prev) => prev.filter((p) => p.id !== petId));
+        showFlash("Pet removido com sucesso.");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleMarkAsAdopted = async (pet: Pet) => {
+    const token = localStorage.getItem("paws_token");
+    const matchingChats = matches.filter((m) => m.pet.id === pet.id);
+    if (matchingChats.length > 0) {
+      const match = matchingChats[0];
+      try {
+        const res = await fetch(`/api/matches/${match.id}/status`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({ adoptionStatus: "adotado" })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setMatches((prev) =>
+            prev.map((m) => (m.id === match.id ? { ...m, ...data.match } : m))
+          );
+          if (data.systemMessage) setMessages((prev) => [...prev, data.systemMessage]);
+          setPets((prev) => prev.map((p) => (p.id === pet.id ? { ...p, isAdopted: true } : p)));
+          showFlash(`Parabéns! ${pet.name} agora está marcado como adotado! 🎉`, "success");
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const handleAcceptVisit = async (match: Match) => {
+    const token = localStorage.getItem("paws_token");
+    try {
+      const res = await fetch(`/api/matches/${match.id}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ visitStatus: "agendada" })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMatches((prev) => prev.map((m) => (m.id === match.id ? { ...m, ...data.match } : m)));
+        if (data.systemMessage) setMessages((prev) => [...prev, data.systemMessage]);
+        showFlash("Visita aceita e agendamento confirmado com sucesso!", "success");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleCancelVisit = async (match: Match) => {
+    const token = localStorage.getItem("paws_token");
+    try {
+      const res = await fetch(`/api/matches/${match.id}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ visitStatus: "cancelada" })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMatches((prev) => prev.map((m) => (m.id === match.id ? { ...m, ...data.match } : m)));
+        if (data.systemMessage) setMessages((prev) => [...prev, data.systemMessage]);
+        showFlash("Visita de adoção desmarcada.", "info");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleAcceptAdoption = async (match: Match) => {
+    const token = localStorage.getItem("paws_token");
+    try {
+      const res = await fetch(`/api/matches/${match.id}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ adoptionStatus: "agendado" })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMatches((prev) => prev.map((m) => (m.id === match.id ? { ...m, ...data.match } : m)));
+        if (data.systemMessage) setMessages((prev) => [...prev, data.systemMessage]);
+        showFlash("Adoção autorizada! Entrega agendada com sucesso.", "success");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleCancelAdoption = async (match: Match) => {
+    const token = localStorage.getItem("paws_token");
+    try {
+      const res = await fetch(`/api/matches/${match.id}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ adoptionStatus: "cancelada" })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMatches((prev) => prev.map((m) => (m.id === match.id ? { ...m, ...data.match } : m)));
+        if (data.systemMessage) setMessages((prev) => [...prev, data.systemMessage]);
+        showFlash("Agendamento de adoção desmarcado.", "info");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeletePetProfile = async (petId: string) => {
+    const token = localStorage.getItem("paws_token");
+    try {
+      const res = await fetch(`/api/pets/${petId}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (res.ok) {
+        // Re-fetch pets and matches
+        const petsRes = await fetch("/api/pets", {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const petsData = await petsRes.json();
+        if (Array.isArray(petsData)) setPets(petsData);
+
+        const matchesRes = await fetch("/api/matches", {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const matchesData = await matchesRes.json();
+        if (Array.isArray(matchesData)) setMatches(matchesData);
+
+        if (activeChatMatch && activeChatMatch.pet.id === petId) {
+          setSelectedMatchId(null);
+        }
+        showFlash("Cadastro do pet removido com sucesso.", "success");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleUnmatch = async (matchId: string) => {
+    if (window.confirm("Deseja realmente desfazer este Match? O petinho ficará triste...")) {
+      const token = localStorage.getItem("paws_token");
+      try {
+        const res = await fetch(`/api/matches/${matchId}`, {
+          method: "DELETE",
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        if (res.ok) {
+          setMatches((prev) => prev.filter((m) => m.id !== matchId));
+          if (selectedMatchId === matchId) {
+            setSelectedMatchId(null);
+          }
+          showFlash("Match desfeito.", "info");
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const handleSimulateAdoption = async (match: Match) => {
+    const token = localStorage.getItem("paws_token");
+    try {
+      const res = await fetch(`/api/matches/${match.id}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ adoptionStatus: "adotado" })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMatches((prev) => prev.map((m) => (m.id === match.id ? { ...m, ...data.match } : m)));
+        if (data.systemMessage) setMessages((prev) => [...prev, data.systemMessage]);
+        setPets((prev) => prev.map((p) => (p.id === match.pet.id ? { ...p, isAdopted: true } : p)));
+        showFlash(`Parabéns! Você confirmou a retirada e adotou ${match.pet.name}! 🎉`, "success");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleConfirmVisit = async () => {
     if (!tempVisitDate || !tempVisitTime || !selectedMatchId) {
       alert("Por favor, preencha a data e o horário da visita!");
       return;
     }
 
+    const token = localStorage.getItem("paws_token");
     const isDoador = userProfile.role === "doador";
     const statusToSet = isDoador ? "proposta_doador" : "proposta_adotante";
 
-    setMatches((prev) =>
-      prev.map((m) =>
-        m.id === selectedMatchId ? { ...m, visitDate: tempVisitDate, visitTime: tempVisitTime, visitStatus: statusToSet } : m
-      )
-    );
+    try {
+      const res = await fetch(`/api/matches/${selectedMatchId}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          visitStatus: statusToSet,
+          visitDate: tempVisitDate,
+          visitTime: tempVisitTime
+        })
+      });
 
-    const formattedDate = new Date(tempVisitDate + "T00:00:00").toLocaleDateString("pt-BR");
-    let notificationText = "";
-    if (isDoador) {
-      notificationText = `*O doador propôs uma nova data e horário para a visita:* Nova proposta para o dia **${formattedDate} às ${tempVisitTime}**. Aguardando aceitação do adotante.`;
-    } else {
-      notificationText = `*O adotante propôs o agendamento de uma visita:* Proposta para o dia **${formattedDate} às ${tempVisitTime}**. Aguardando aceitação do abrigo/doador.`;
+      if (res.ok) {
+        const data = await res.json();
+        setMatches((prev) =>
+          prev.map((m) => (m.id === selectedMatchId ? { ...m, ...data.match } : m))
+        );
+        if (data.systemMessage) {
+          setMessages((prev) => [...prev, data.systemMessage]);
+        }
+        
+        const formattedDate = new Date(tempVisitDate + "T00:00:00").toLocaleDateString("pt-BR");
+        const flashMsgText = isDoador
+          ? `Nova proposta de visita enviada ao adotante para o dia ${formattedDate} às ${tempVisitTime}!`
+          : `Proposta de visita enviada para o dia ${formattedDate}!`;
+        showFlash(flashMsgText, "success");
+        setIsSchedulingVisit(false);
+      }
+    } catch (e) {
+      console.error("Erro ao propor visita:", e);
     }
-
-    const systemMsg: Message = {
-      id: `msg-visit-${Date.now()}`,
-      matchId: selectedMatchId,
-      sender: isDoador ? "pet" : "user",
-      text: notificationText,
-      timestamp: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, systemMsg]);
-
-    const flashMsgText = isDoador
-      ? `Nova proposta de visita enviada ao adotante para o dia ${formattedDate} às ${tempVisitTime}!`
-      : `Proposta de visita enviada para o dia ${formattedDate}!`;
-    showFlash(flashMsgText, "success");
-    setIsSchedulingVisit(false);
   };
 
-  const handleConfirmAdoption = () => {
+  const handleConfirmAdoption = async () => {
     if (!tempAdoptionDate || !tempAdoptionTime || !selectedMatchId) {
       alert("Por favor, preencha a data e o horário da busca do pet!");
       return;
     }
 
+    const token = localStorage.getItem("paws_token");
     const isDoador = userProfile.role === "doador";
     const statusToSet = isDoador ? "proposta_doador" : "proposta_adotante";
 
-    setMatches((prev) =>
-      prev.map((m) =>
-        m.id === selectedMatchId
-          ? { ...m, adoptionDate: tempAdoptionDate, adoptionTime: tempAdoptionTime, adoptionStatus: statusToSet }
-          : m
-      )
-    );
+    try {
+      const res = await fetch(`/api/matches/${selectedMatchId}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          adoptionStatus: statusToSet,
+          adoptionDate: tempAdoptionDate,
+          adoptionTime: tempAdoptionTime
+        })
+      });
 
-    const formattedDate = new Date(tempAdoptionDate + "T00:00:00").toLocaleDateString("pt-BR");
-    let notificationText = "";
-    if (isDoador) {
-      notificationText = `*O abrigo/doador propôs uma nova data para busca do pet para adoção:* Nova proposta para o dia **${formattedDate} às ${tempAdoptionTime}**. Aguardando aceitação do adotante.`;
-    } else {
-      notificationText = `*O adotante aceitou os termos e assinou o Termo de Adoção!* 📝 Proposta enviada para buscar o pet no dia **${formattedDate} às ${tempAdoptionTime}**. Aguardando aceitação do abrigo/doador.`;
+      if (res.ok) {
+        const data = await res.json();
+        setMatches((prev) =>
+          prev.map((m) => (m.id === selectedMatchId ? { ...m, ...data.match } : m))
+        );
+        if (data.systemMessage) {
+          setMessages((prev) => [...prev, data.systemMessage]);
+        }
+        
+        const formattedDate = new Date(tempAdoptionDate + "T00:00:00").toLocaleDateString("pt-BR");
+        const flashMsgText = isDoador
+          ? `Nova proposta de data de retirada de adoção enviada para o dia ${formattedDate} às ${tempAdoptionTime}!`
+          : `Termo assinado e proposta de adoção enviada com sucesso para o dia ${formattedDate}!`;
+        showFlash(flashMsgText, "success");
+        setIsSchedulingAdoption(false);
+      }
+    } catch (e) {
+      console.error("Erro ao propor adoção:", e);
     }
-
-    const systemMsg: Message = {
-      id: `msg-adopt-${Date.now()}`,
-      matchId: selectedMatchId,
-      sender: isDoador ? "pet" : "user",
-      text: notificationText,
-      timestamp: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, systemMsg]);
-
-    const flashMsgText = isDoador
-      ? `Nova proposta de data de retirada de adoção enviada para o dia ${formattedDate} às ${tempAdoptionTime}!`
-      : `Termo assinado e proposta de adoção enviada com sucesso para o dia ${formattedDate}!`;
-    showFlash(flashMsgText, "success");
-    setIsSchedulingAdoption(false);
   };
 
   if (!isLoggedIn) {
