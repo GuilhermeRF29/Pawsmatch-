@@ -42,46 +42,7 @@ export default function App() {
   });
 
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    return localStorage.getItem("paws_is_logged_in") === "true";
-  });
-
-  const [registeredUsers, setRegisteredUsers] = useState<Record<string, { password?: string; profile: UserProfile }>>(() => {
-    const saved = localStorage.getItem("paws_users_db");
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    const initialDb = {
-      "adotante@paws.com": {
-        password: "Password1!",
-        profile: {
-          name: "Adotante Inspirador",
-          email: "adotante@paws.com",
-          role: "adotante" as const,
-          location: "São Paulo, SP",
-          otherPets: false,
-          hasYard: true,
-          profilePic: "https://images.unsplash.com/photo-1537151625747-7ae85e565156?auto=format&fit=crop&q=80&w=150",
-        },
-      },
-      "abrigo@paws.com": {
-        password: "Password1!",
-        profile: {
-          name: "Abraço de Quatro Patas NGO",
-          email: "abrigo@paws.com",
-          role: "doador" as const,
-          location: "Campinas, SP",
-          otherPets: false,
-          hasYard: true,
-          profilePic: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&q=80&w=150",
-          shelterName: "ONG Abraço de Quatro Patas",
-          phone: "(19) 98765-4321",
-        },
-      },
-    };
-    localStorage.setItem("paws_users_db", JSON.stringify(initialDb));
-    return initialDb;
+    return !!localStorage.getItem("paws_token");
   });
 
   const [matches, setMatches] = useState<Match[]>(() => {
@@ -129,6 +90,45 @@ export default function App() {
   const [tempAdoptionDate, setTempAdoptionDate] = useState("");
   const [tempAdoptionTime, setTempAdoptionTime] = useState("");
 
+  // Load initial session with JWT validation
+  useEffect(() => {
+    const checkSession = async () => {
+      const token = localStorage.getItem("paws_token");
+      if (!token) {
+        setIsLoggedIn(false);
+        return;
+      }
+      try {
+        const res = await fetch("/api/auth/me", {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUserProfile(data.profile);
+          setIsLoggedIn(true);
+        } else {
+          // Token expired or invalid
+          localStorage.removeItem("paws_token");
+          setIsLoggedIn(false);
+        }
+      } catch (e) {
+        console.error("Erro ao verificar sessão JWT:", e);
+        // Fallback to offline profile
+        const savedProfile = localStorage.getItem("paws_user_profile");
+        if (savedProfile) {
+          setUserProfile(JSON.parse(savedProfile));
+          setIsLoggedIn(true);
+        } else {
+          setIsLoggedIn(false);
+        }
+      }
+    };
+
+    checkSession();
+  }, []);
+
   // Persist dependencies
   useEffect(() => {
     localStorage.setItem("paws_pets", JSON.stringify(pets));
@@ -146,10 +146,6 @@ export default function App() {
     localStorage.setItem("paws_messages", JSON.stringify(messages));
   }, [messages]);
 
-  useEffect(() => {
-    localStorage.setItem("paws_users_db", JSON.stringify(registeredUsers));
-  }, [registeredUsers]);
-
   const showFlash = (text: string, type: "success" | "info" = "success") => {
     setFlashMessage({ text, type });
     setTimeout(() => {
@@ -157,39 +153,18 @@ export default function App() {
     }, 4000);
   };
 
-  const handleLoginSuccess = (
-    profile: UserProfile,
-    updatedDb: Record<string, { password?: string; profile: UserProfile }>
-  ) => {
-    setRegisteredUsers(updatedDb);
+  const handleLoginSuccess = (profile: UserProfile, token: string) => {
     setUserProfile(profile);
     localStorage.setItem("paws_user_profile", JSON.stringify(profile));
+    localStorage.setItem("paws_token", token);
     setIsLoggedIn(true);
-    localStorage.setItem("paws_is_logged_in", "true");
     setActiveTab(profile.role === "doador" ? "my-listed-pets" : "swipe");
-  };
-
-  const handleDeleteAccount = (email: string) => {
-    const emailKey = email.trim().toLowerCase();
-    const isMe = emailKey === userProfile.email.trim().toLowerCase();
-
-    setRegisteredUsers((prev) => {
-      const next = { ...prev };
-      delete next[emailKey];
-      return next;
-    });
-
-    if (isMe) {
-      handleLogout();
-      showFlash("Sua conta foi excluída com sucesso de nossos registros.", "info");
-    } else {
-      showFlash(`A conta ${email} foi excluída com sucesso!`, "info");
-    }
   };
 
   const handleLogout = () => {
     setIsLoggedIn(false);
-    localStorage.removeItem("paws_is_logged_in");
+    localStorage.removeItem("paws_token");
+    localStorage.removeItem("paws_user_profile");
     showFlash("Sessão finalizada. Até logo!", "info");
   };
 
@@ -515,9 +490,7 @@ export default function App() {
   if (!isLoggedIn) {
     return (
       <AuthScreen
-        registeredUsers={registeredUsers}
         onLoginSuccess={handleLoginSuccess}
-        onDeleteAccount={handleDeleteAccount}
         showFlash={showFlash}
       />
     );
@@ -821,8 +794,6 @@ export default function App() {
             <ProfileScreen
               userProfile={userProfile}
               setUserProfile={setUserProfile}
-              registeredUsers={registeredUsers}
-              onDeleteAccount={handleDeleteAccount}
               handleLogout={handleLogout}
               showFlash={showFlash}
               setActiveTab={setActiveTab}

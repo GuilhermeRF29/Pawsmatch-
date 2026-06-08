@@ -1,12 +1,11 @@
 import * as React from "react";
+import { useState, useEffect } from "react";
 import { UserProfile, ActiveTab } from "../types";
 import { Sparkles, LogOut, Trash2, AlertCircle } from "lucide-react";
 
 interface ProfileScreenProps {
   userProfile: UserProfile;
   setUserProfile: React.Dispatch<React.SetStateAction<UserProfile>>;
-  registeredUsers: Record<string, { password?: string; profile: UserProfile }>;
-  onDeleteAccount: (email: string) => void;
   handleLogout: () => void;
   showFlash: (text: string, type?: "success" | "info") => void;
   setActiveTab: (tab: ActiveTab) => void;
@@ -15,12 +14,58 @@ interface ProfileScreenProps {
 export default function ProfileScreen({
   userProfile,
   setUserProfile,
-  registeredUsers,
-  onDeleteAccount,
   handleLogout,
   showFlash,
   setActiveTab,
 }: ProfileScreenProps) {
+  const [accounts, setAccounts] = useState<UserProfile[]>([]);
+
+  const fetchAccounts = async () => {
+    try {
+      const res = await fetch("/api/auth/accounts");
+      if (res.ok) {
+        const data = await res.json();
+        setAccounts(data.accounts);
+      }
+    } catch (e) {
+      console.error("Erro ao carregar contas do servidor:", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchAccounts();
+  }, []);
+
+  const handleDeleteAccount = async (email: string) => {
+    const isMe = email.trim().toLowerCase() === userProfile.email.trim().toLowerCase();
+    const token = localStorage.getItem("paws_token") || "demo-token";
+
+    try {
+      const res = await fetch(`/api/auth/accounts/${encodeURIComponent(email)}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        if (isMe) {
+          handleLogout();
+          showFlash("Sua conta foi excluída com sucesso de nossos registros.", "info");
+        } else {
+          showFlash(`A conta ${email} foi excluída com sucesso!`, "info");
+          fetchAccounts(); // Refresh account list
+        }
+      } else {
+        const errorData = await res.json();
+        alert(errorData.error || "Erro ao excluir conta.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erro de conexão ao excluir conta.");
+    }
+  };
+
   return (
     <div className="w-full max-w-xl bg-white rounded-3xl shadow-xl border border-rose-50 p-6 sm:p-8">
       <div className="flex items-center gap-4 border-b border-rose-50 pb-5 mb-5">
@@ -160,16 +205,12 @@ export default function ProfileScreen({
         )}
 
         {/* Info Card banner */}
-        <div className="p-4 bg-rose-50/50 border border-rose-100 rounded-2xl flex gap-3 text-xs text-slate-600 mt-4 leading-relaxed">
+        <div className="p-4 bg-rose-50/50 border border-rose-100 rounded-2xl flex gap-3 text-xs text-slate-650 mt-4 leading-relaxed">
           <AlertCircle size={18} className="text-rose-500 shrink-0 mt-0.5" />
           <div>
-            <span className="font-bold text-rose-800">
-              {userProfile.role === "doador" ? "Credencial De Protetor Parcial" : "Preenchimento Automático Gemini"}
-            </span>
+            <span className="font-bold text-rose-800">Preenchimento Automático Gemini</span>
             <p className="text-[10px] text-neutral-500 mt-0.5">
-              {userProfile.role === "doador"
-                ? "Por estar logado como Doador, suas alterações são replicadas instantaneamente aos campos de novos pets que cadastrar!"
-                : "Pronto! O robô de IA agora sabe se você tem quintal e outros amiguinhos. Ele usará essas referências fofas em próximas conversas."}
+              Pronto! O robô de IA agora sabe se você tem quintal e outros amiguinhos. Ele usará essas referências fofas em próximas conversas.
             </p>
           </div>
         </div>
@@ -198,7 +239,7 @@ export default function ProfileScreen({
         {/* ZONA DE PERIGO */}
         <div className="mt-8 pt-6 border-t border-rose-100">
           <h4 className="text-[10px] font-black uppercase text-rose-500 tracking-wider mb-2.5 flex items-center gap-1">
-            <span>⚠️</span> <span>Zona de Perigo / Gerenciar Contas ({Object.keys(registeredUsers).length})</span>
+            <span>⚠️</span> <span>Zona de Perigo / Gerenciar Contas ({accounts.length})</span>
           </h4>
           <div className="p-4 bg-rose-50/20 border border-rose-100 rounded-2xl space-y-4">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -216,8 +257,7 @@ export default function ProfileScreen({
                       "Você tem certeza ABSOLUTA de que deseja EXCLUIR permanentemente a sua conta atual? Esta ação é irreversível e se deslogará imediatamente!"
                     )
                   ) {
-                    const myEmail = userProfile.email.trim().toLowerCase();
-                    onDeleteAccount(myEmail);
+                    handleDeleteAccount(userProfile.email);
                   }
                 }}
                 className="bg-rose-100 hover:bg-rose-200 text-rose-700 py-1.5 px-3 rounded-xl text-[10px] font-bold transition flex items-center gap-1 cursor-pointer shrink-0"
@@ -233,43 +273,38 @@ export default function ProfileScreen({
                 Excluir Outras Contas Cadastradas no App:
               </p>
               <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
-                {(
-                  Object.entries(registeredUsers) as [
-                    string,
-                    { password?: string; profile: UserProfile }
-                  ][]
-                ).map(([email, info]) => {
-                  const isMe = email.toLowerCase() === userProfile.email.toLowerCase();
+                {accounts.map((profile) => {
+                  const isMe = profile.email.toLowerCase() === userProfile.email.toLowerCase();
                   return (
                     <div
-                      key={email}
+                      key={profile.email}
                       className="flex items-center justify-between p-2.5 bg-white rounded-xl border border-slate-100 text-xs hover:border-slate-200 transition"
                     >
                       <div className="flex flex-col min-w-0 pr-2">
                         <span className="font-bold text-slate-700 truncate text-[11px]">
-                          {info.profile.name} {isMe && <span className="text-[9px] text-[#ff4b6e] font-normal">(Você)</span>}
+                          {profile.name} {isMe && <span className="text-[9px] text-[#ff4b6e] font-normal">(Você)</span>}
                         </span>
-                        <span className="text-[9px] text-slate-400 truncate mt-0.5">{email}</span>
+                        <span className="text-[9px] text-slate-400 truncate mt-0.5">{profile.email}</span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span
                           className={`px-1 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${
-                            info.profile.role === "doador"
+                            profile.role === "doador"
                               ? "bg-orange-50 text-orange-600 border border-orange-100"
                               : "bg-rose-50 text-rose-600 border border-rose-100"
                           }`}
                         >
-                          {info.profile.role === "doador" ? "Doador" : "Adotante"}
+                          {profile.role === "doador" ? "Doador" : "Adotante"}
                         </span>
                         <button
                           type="button"
                           onClick={() => {
                             if (
                               window.confirm(
-                                `Tem certeza de que deseja excluir permanentemente a conta de ${info.profile.name} (${email})?`
+                                `Tem certeza de que deseja excluir permanentemente a conta de ${profile.name} (${profile.email})?`
                               )
                             ) {
-                              onDeleteAccount(email);
+                              handleDeleteAccount(profile.email);
                             }
                           }}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"

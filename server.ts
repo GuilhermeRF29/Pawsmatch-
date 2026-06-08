@@ -1,16 +1,197 @@
 import express from "express";
 import path from "path";
 import dotenv from "dotenv";
+import fs from "fs";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
+
+const USERS_DB_PATH = path.join(process.cwd(), "users_db.json");
+const JWT_SECRET = process.env.JWT_SECRET || "paws-secret-cupid-love-2026-key";
+
+// Helper function to load and save users on server database file
+function loadUsers() {
+  if (!fs.existsSync(USERS_DB_PATH)) {
+    const initialDb = {
+      "adotante@paws.com": {
+        password: "Password1!",
+        profile: {
+          name: "Adotante Inspirador",
+          email: "adotante@paws.com",
+          role: "adotante",
+          location: "São Paulo, SP",
+          otherPets: false,
+          hasYard: true,
+          profilePic: "https://images.unsplash.com/photo-1537151625747-7ae85e565156?auto=format&fit=crop&q=80&w=150"
+        }
+      },
+      "abrigo@paws.com": {
+        password: "Password1!",
+        profile: {
+          name: "Abraço de Quatro Patas NGO",
+          email: "abrigo@paws.com",
+          role: "doador",
+          location: "Campinas, SP",
+          otherPets: false,
+          hasYard: true,
+          profilePic: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&q=80&w=150",
+          shelterName: "ONG Abraço de Quatro Patas",
+          phone: "(19) 98765-4321"
+        }
+      }
+    };
+    fs.writeFileSync(USERS_DB_PATH, JSON.stringify(initialDb, null, 2));
+    return initialDb;
+  }
+  try {
+    const data = fs.readFileSync(USERS_DB_PATH, "utf-8");
+    return JSON.parse(data);
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveUsers(users: any) {
+  fs.writeFileSync(USERS_DB_PATH, JSON.stringify(users, null, 2));
+}
+
+// Native HS256 JWT Utility functions
+function base64url(str: string): string {
+  return Buffer.from(str).toString("base64url");
+}
+
+function base64urlDecode(str: string): string {
+  return Buffer.from(str, "base64url").toString("utf-8");
+}
+
+function signJWT(payload: any): string {
+  const header = { alg: "HS256", typ: "JWT" };
+  const encodedHeader = base64url(JSON.stringify(header));
+  const encodedPayload = base64url(JSON.stringify(payload));
+  const signature = crypto
+    .createHmac("sha256", JWT_SECRET)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest("base64url");
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
+}
+
+function verifyJWT(token: string): any | null {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [encodedHeader, encodedPayload, signature] = parts;
+  const expectedSignature = crypto
+    .createHmac("sha256", JWT_SECRET)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest("base64url");
+  if (signature !== expectedSignature) return null;
+  try {
+    return JSON.parse(base64urlDecode(encodedPayload));
+  } catch (e) {
+    return null;
+  }
+}
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Ensure database file is initialized on startup
+  loadUsers();
+
+  // JWT Registration Route
+  app.post("/api/auth/register", (req, res) => {
+    const { email, password, role, name, location, phone, shelterName, hasYard, otherPets, profilePic } = req.body;
+    if (!email || !password || !name) {
+      return res.status(400).json({ error: "E-mail, senha e nome são obrigatórios." });
+    }
+    const users = loadUsers();
+    const emailKey = email.trim().toLowerCase();
+    if (users[emailKey]) {
+      return res.status(400).json({ error: "E-mail já cadastrado." });
+    }
+
+    const newProfile = {
+      name: name.trim(),
+      email: email.trim(),
+      role: role || "adotante",
+      location: location || "São Paulo, SP",
+      otherPets: role === "adotante" ? !!otherPets : false,
+      hasYard: role === "adotante" ? !!hasYard : false,
+      profilePic: profilePic || "https://images.unsplash.com/photo-1537151625747-7ae85e565156?auto=format&fit=crop&q=80&w=150",
+      shelterName: role === "doador" ? shelterName : undefined,
+      phone: phone || undefined
+    };
+
+    users[emailKey] = { password, profile: newProfile };
+    saveUsers(users);
+
+    const token = signJWT(newProfile);
+    return res.json({ token, profile: newProfile });
+  });
+
+  // JWT Login Route
+  app.post("/api/auth/login", (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "E-mail e senha são obrigatórios." });
+    }
+    const users = loadUsers();
+    const emailKey = email.trim().toLowerCase();
+    const user = users[emailKey];
+    if (!user || user.password !== password) {
+      return res.status(401).json({ error: "E-mail ou senha incorretos." });
+    }
+    const token = signJWT(user.profile);
+    return res.json({ token, profile: user.profile });
+  });
+
+  // JWT Fetch Active User Route
+  app.get("/api/auth/me", (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Token não fornecido." });
+    }
+    const token = authHeader.split(" ")[1];
+    const profile = verifyJWT(token);
+    if (!profile) {
+      return res.status(401).json({ error: "Token inválido ou expirado." });
+    }
+    return res.json({ profile });
+  });
+
+  // Fetch all accounts route (useful for management)
+  app.get("/api/auth/accounts", (req, res) => {
+    const users = loadUsers();
+    const accounts = Object.values(users).map((u: any) => u.profile);
+    return res.json({ accounts });
+  });
+
+  // Exclude account route
+  app.delete("/api/auth/accounts/:email", (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Token não fornecido." });
+    }
+    const token = authHeader.split(" ")[1];
+    const requesterProfile = verifyJWT(token);
+    if (!requesterProfile) {
+      return res.status(401).json({ error: "Token inválido ou expirado." });
+    }
+
+    const emailToDelete = req.params.email.trim().toLowerCase();
+    const users = loadUsers();
+    if (!users[emailToDelete]) {
+      return res.status(404).json({ error: "Conta não encontrada." });
+    }
+
+    delete users[emailToDelete];
+    saveUsers(users);
+    return res.json({ success: true });
+  });
 
   // API Route for Pet Chat
   app.post("/api/chat", async (req, res) => {
@@ -73,7 +254,7 @@ async function startServer() {
         return res.json({ reply: `[Demonstração] ${reply}` });
       }
 
-      // Initialize Gemini Client inside request dynamically to prevent crashing on empty credentials
+      // Initialize Gemini Client inside request dynamically
       const ai = new GoogleGenAI({
         apiKey: apiKey,
         httpOptions: {
@@ -83,7 +264,6 @@ async function startServer() {
         }
       });
 
-      // Prepare context & conversation history for the model
       const systemInstruction = `Você é um animalzinho de estimação fofo chamado ${petName}, que é um ${petType} de idade ${petAge}. Você está em um abrigo de adoção e deu Match com o usuário no Tinder de Animais!
       
 Sua personalidade, histórico e bio:
@@ -102,7 +282,6 @@ Diretrizes de resposta:
 4. Mantenha as respostas de chat curtas, ágeis, animadas e interativas, ideais para um aplicativo de mensagens de celular. Evite parágrafos longos desnecessários.
 5. Nunca quebre o personagem de um amiguinho pet que fala e está ansioso por um lar protetor. Escreva na primeira pessoa ("eu").`;
 
-      // Structure conversation for Gemini API with contents format
       const formattedContents = conversation.map((msg: { sender: string; text: string }) => {
         return {
           role: msg.sender === "user" ? "user" : "model",
@@ -110,7 +289,6 @@ Diretrizes de resposta:
         };
       });
 
-      // Run generative content
       const response = await ai.models.generateContent({
         model: "gemini-3.5-flash",
         contents: formattedContents,

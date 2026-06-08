@@ -1,15 +1,10 @@
 import * as React from "react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { UserProfile } from "../types";
 import { Trash2 } from "lucide-react";
 
 interface AuthScreenProps {
-  registeredUsers: Record<string, { password?: string; profile: UserProfile }>;
-  onLoginSuccess: (
-    profile: UserProfile,
-    updatedUsersDb: Record<string, { password?: string; profile: UserProfile }>
-  ) => void;
-  onDeleteAccount: (email: string) => void;
+  onLoginSuccess: (profile: UserProfile, token: string) => void;
   showFlash: (text: string, type?: "success" | "info") => void;
 }
 
@@ -23,9 +18,7 @@ const AVATARS = [
 ];
 
 export default function AuthScreen({
-  registeredUsers,
   onLoginSuccess,
-  onDeleteAccount,
   showFlash,
 }: AuthScreenProps) {
   const [authMode, setAuthMode] = useState<"login" | "register">("register");
@@ -40,51 +33,51 @@ export default function AuthScreen({
   const [authOtherPets, setAuthOtherPets] = useState(false);
   const [selectedAvatar, setSelectedAvatar] = useState(AVATARS[0].url);
 
-  const loginDemoAccount = (role: "adotante" | "doador") => {
-    if (role === "adotante") {
-      const demoProfile: UserProfile = {
-        name: "Adotante Inspirador",
-        email: "adotante@paws.com",
-        role: "adotante",
-        location: "São Paulo, SP",
-        otherPets: false,
-        hasYard: true,
-        profilePic: "https://images.unsplash.com/photo-1537151625747-7ae85e565156?auto=format&fit=crop&q=80&w=150"
-      };
-      const updatedDb = {
-        ...registeredUsers,
-        "adotante@paws.com": {
-          password: "Password1!",
-          profile: demoProfile
-        }
-      };
-      onLoginSuccess(demoProfile, updatedDb);
-      showFlash("Entrou como Adotante de Teste! Explore e curta os pets.", "success");
-    } else {
-      const demoProfile: UserProfile = {
-        name: "Abraço de Quatro Patas NGO",
-        email: "abrigo@paws.com",
-        role: "doador",
-        location: "Campinas, SP",
-        otherPets: false,
-        hasYard: true,
-        profilePic: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&q=80&w=150",
-        shelterName: "ONG Abraço de Quatro Patas",
-        phone: "(19) 98765-4321"
-      };
-      const updatedDb = {
-        ...registeredUsers,
-        "abrigo@paws.com": {
-          password: "Password1!",
-          profile: demoProfile
-        }
-      };
-      onLoginSuccess(demoProfile, updatedDb);
-      showFlash("Entrou como Doador de Teste! Cadastre e gerencie pets.", "success");
+  // Local state for fetched accounts
+  const [accounts, setAccounts] = useState<UserProfile[]>([]);
+
+  const fetchAccounts = async () => {
+    try {
+      const res = await fetch("/api/auth/accounts");
+      if (res.ok) {
+        const data = await res.json();
+        setAccounts(data.accounts);
+      }
+    } catch (e) {
+      console.error("Erro ao carregar contas do servidor:", e);
     }
   };
 
-  const handleAuthSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    fetchAccounts();
+  }, []);
+
+  const loginDemoAccount = async (role: "adotante" | "doador") => {
+    const email = role === "adotante" ? "adotante@paws.com" : "abrigo@paws.com";
+    const password = "Password1!";
+
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        onLoginSuccess(data.profile, data.token);
+        showFlash(`Entrou como ${role === "adotante" ? "Adotante" : "Doador"} de Teste!`, "success");
+      } else {
+        const errorData = await res.json();
+        alert(errorData.error || "Erro ao fazer login demo.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erro de conexão com o servidor.");
+    }
+  };
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!authEmail.trim()) {
       alert("Por favor, preencha o e-mail!");
@@ -114,10 +107,11 @@ export default function AuthScreen({
       }
 
       const roleSelected = registerRole;
-      const newProfile: UserProfile = {
-        name: authName.trim(),
+      const registrationPayload = {
         email: authEmail.trim(),
+        password: authPassword,
         role: roleSelected,
+        name: authName.trim(),
         location: authLocation.trim(),
         otherPets: roleSelected === "adotante" ? authOtherPets : false,
         hasYard: roleSelected === "adotante" ? authHasYard : false,
@@ -126,41 +120,72 @@ export default function AuthScreen({
         phone: authPhone.trim() || undefined
       };
 
-      const updatedUsers = {
-        ...registeredUsers,
-        [authEmail.trim().toLowerCase()]: {
-          password: authPassword,
-          profile: newProfile
-        }
-      };
+      try {
+        const res = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(registrationPayload)
+        });
 
-      onLoginSuccess(newProfile, updatedUsers);
-      showFlash(`Cadastro realizado com sucesso! Bem-vindo(a) ${newProfile.name} 🐾`, "success");
+        if (res.ok) {
+          const data = await res.json();
+          onLoginSuccess(data.profile, data.token);
+          showFlash(`Cadastro realizado com sucesso! Bem-vindo(a) ${data.profile.name} 🐾`, "success");
+        } else {
+          const errorData = await res.json();
+          alert(errorData.error || "Erro ao realizar cadastro.");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Erro de conexão ao realizar o cadastro.");
+      }
     } else {
       if (!authPassword) {
         alert("Por favor, digite a senha!");
         return;
       }
 
-      const emailKey = authEmail.trim().toLowerCase();
-      const existingUser = registeredUsers[emailKey];
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: authEmail.trim(), password: authPassword })
+        });
 
-      if (existingUser) {
-        if (existingUser.password !== authPassword) {
-          alert(
-            "Senha incorreta! Por favor, verifique suas credenciais ou utilize os botões rápidos de teste abaixo."
-          );
-          return;
+        if (res.ok) {
+          const data = await res.json();
+          onLoginSuccess(data.profile, data.token);
+          showFlash(`Bem-vindo(a) de volta, ${data.profile.name}! 🎉`, "success");
+        } else {
+          const errorData = await res.json();
+          alert(errorData.error || "Erro ao fazer login.");
         }
-
-        onLoginSuccess(existingUser.profile, registeredUsers);
-        showFlash(`Bem-vindo(a) de volta, ${existingUser.profile.name}! 🎉`, "success");
-      } else {
-        alert(
-          "E-mail não encontrado nos registros do aplicativo. Por favor, use a aba 'Cadastrar Conta' para criar uma nova conta primeiro!"
-        );
-        return;
+      } catch (err) {
+        console.error(err);
+        alert("Erro de conexão ao fazer login.");
       }
+    }
+  };
+
+  const handleDeleteAccount = async (email: string) => {
+    try {
+      const res = await fetch(`/api/auth/accounts/${encodeURIComponent(email)}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": "Bearer demo-token"
+        }
+      });
+
+      if (res.ok) {
+        showFlash(`A conta ${email} foi excluída com sucesso!`, "info");
+        fetchAccounts(); // refresh list
+      } else {
+        const errorData = await res.json();
+        alert(errorData.error || "Erro ao deletar conta.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erro de conexão ao deletar a conta.");
     }
   };
 
@@ -543,30 +568,25 @@ export default function AuthScreen({
           {/* REGISTERED USERS MANAGEMENT */}
           <div className="mt-6 border-t border-slate-100 pt-5">
             <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block mb-2">
-              📂 Contas Cadastradas no Sistema ({Object.keys(registeredUsers).length})
+              📂 Contas Cadastradas no Sistema ({accounts.length})
             </span>
 
-            {Object.keys(registeredUsers).length === 0 ? (
+            {accounts.length === 0 ? (
               <p className="text-[10px] text-slate-400 italic">Nenhuma conta no banco de dados local.</p>
             ) : (
               <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 text-xs">
-                {(
-                  Object.entries(registeredUsers) as [
-                    string,
-                    { password?: string; profile: UserProfile }
-                  ][]
-                ).map(([email, info]) => {
-                  const isDoador = info.profile.role === "doador";
+                {accounts.map((profile) => {
+                  const isDoador = profile.role === "doador";
                   return (
                     <div
-                      key={email}
+                      key={profile.email}
                       className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-xl hover:bg-slate-100/50 transition"
                     >
                       <div className="flex flex-col min-w-0 pr-2">
                         <span className="font-bold text-slate-700 truncate text-[11px]">
-                          {info.profile.name}
+                          {profile.name}
                         </span>
-                        <span className="text-[9px] text-slate-400 truncate mt-0.5">{email}</span>
+                        <span className="text-[9px] text-slate-400 truncate mt-0.5">{profile.email}</span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span
@@ -583,10 +603,10 @@ export default function AuthScreen({
                           onClick={() => {
                             if (
                               window.confirm(
-                                `Tem certeza de que deseja excluir permanentemente a conta de ${info.profile.name} (${email})?`
+                                `Tem certeza de que deseja excluir permanentemente a conta de ${profile.name} (${profile.email})?`
                               )
                             ) {
-                              onDeleteAccount(email);
+                              handleDeleteAccount(profile.email);
                             }
                           }}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-white transition cursor-pointer"
