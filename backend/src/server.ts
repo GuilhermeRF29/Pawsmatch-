@@ -11,7 +11,9 @@ const app = express();
 const prisma = new PrismaClient();
 
 // Middlewares (o limit: '50mb' é crucial para receber imagens Base64)
-app.use(cors());
+app.use(cors({
+  origin: 'http://localhost:3000'
+}));
 app.use(express.json({ limit: '50mb' }));
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';

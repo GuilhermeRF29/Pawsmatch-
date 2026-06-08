@@ -1,0 +1,79 @@
+services:
+  # 🗄️ Serviço do Banco de Dados (MySQL)
+  db:
+    image: mysql:8.0
+    container_name: app_mysql_db
+    restart: always
+    environment:
+      # Senha do usuário root do MySQL (administrador do banco)
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      # Nome do banco de dados que será criado automaticamente ao iniciar o container
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      # # Nome do usuário não-root que será criado e terá acesso ao banco
+      # MYSQL_USER: ${MYSQL_USER}
+      # # Senha do usuário especificado em MYSQL_USER
+      # MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ⚙️ Serviço do Backend (Node.js + Prisma)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: app_backend
+    restart: always
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules # Evita que o node_modules local sobrescreva o do container
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - PORT=${BACKEND_PORT}
+    depends_on:
+      db:
+        condition: service_healthy # Só inicia quando o MySQL aceitar conexões
+    networks:
+      - app-network
+    # Executa a geração do client do prisma, roda as migrations pendentes e inicia o app
+    command: >
+      sh -c "npx prisma generate &&
+             npx prisma migrate dev --name init_tabela &&
+             npm run dev"
+
+  # 💻 Serviço do Frontend (React / Vite / etc)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: app_frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # Evita que o node_modules local sobrescreva o do container
+    environment:
+      - VITE_API_URL=${VITE_API_URL}
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+volumes:
+  db_data:
+
+networks:
+  app-network:
+    driver: bridge

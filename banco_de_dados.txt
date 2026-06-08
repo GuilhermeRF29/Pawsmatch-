@@ -60,6 +60,6 @@ Tabela: Mensagens (mensagens)
 
 
 Precisa rodar
+	docker run --name mysql-container -e MYSQL_ROOT_PASSWORD=123456 -p 3306:3306 -d mysql:latest
 	npx prisma migrate dev --name init_tabela_usuarios
 	npx prisma generate
-
