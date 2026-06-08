@@ -57,3 +57,9 @@ Tabela: Mensagens (mensagens)
 	remetente: Enum ('user', 'pet') -> user é quando o Adotante envia, pet é quando o Doador responde.
 	texto: Texto
 	data_envio: Data e Hora
+
+
+Precisa rodar
+	npx prisma migrate dev --name init_tabela_usuarios
+	npx prisma generate
+
